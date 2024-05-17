@@ -1,0 +1,356 @@
+---
+title: "The Impact of Research Investment on Short-Term GDP Growth"
+author: "Jeffery Gao, Alexander Caza, Jakin Chan"
+date: "2024-04-05"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+## Introduction
+
+Research and development investment is essential for major economies to stay
+relevant in a rapidly changing technological landscape. Universities and
+colleges are one of the major sources of basic and applied research in almost
+all industries. For economists and policymakers, understanding the economic
+return on investment of government investment in academic research projects is
+imperative for implementing intelligent policy decisions with respect to
+spending priorities. This paper seeks to investigate how government expenditure
+on academic research impacts GDP growth in Ontario. Specifically, it seeks to
+investigate the presence and strength of the correlation between such spending
+and economic growth in Ontario on a year to year basis.
+
+
+## Data and Observations
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(0)
+library(tidyverse)
+library(knitr)
+
+# Read data
+funding <- read.csv("research_funding_summary_2004-2024_en.csv")
+gdp <- read.csv("gdp_goods.csv")
+
+# -------------------------
+# FUNDING DATA
+# -------------------------
+
+# Convert dollar values into numeric type
+funding$Ontario.Commitment <-
+  as.numeric(gsub('\\$|,', '', funding$Ontario.Commitment))
+
+# Get data of interest in funding data set
+funding <- funding %>%
+  mutate(Year = 2000 + as.integer(str_sub(Approval.Date, start=8))) %>%
+  select(c("Year", "Ontario.Commitment")) %>%
+  group_by(Year) %>%
+  summarize(Ontario.Commitment = sum(Ontario.Commitment))
+
+# -------------------------
+# GDP DATA
+# -------------------------
+gdp <- gdp %>%
+  filter(Industry == "Goods-Producing Industries ") %>%
+  select(-c("NAICS", "Industry")) %>%
+  t() %>%
+  as_tibble() %>%
+  rownames_to_column(var = "Year") %>%
+  mutate(Year = as.integer(Year) + 2006) %>%
+  rename(GDP = V1)
+
+# Convert dollar values into numeric type
+gdp$GDP <- as.numeric(gsub(',', '', gdp$GDP))
+
+# Create GDP Change column
+gdp <- gdp %>%
+  mutate(gdp_change = (gdp$GDP - lag(gdp$GDP)) / lag(gdp$GDP) * 100)
+
+# -------------------------
+# JOINING DATA SETS BY YEAR
+# -------------------------
+d <- inner_join(funding, gdp, by = "Year") %>%
+  select(Year, Ontario.Commitment, gdp_change) %>%
+  filter(!is.na(gdp_change))
+
+```
+
+Our report is based on two data sets collected and published by the Government
+of Ontario on their Data Catalogue website. The first is the “Ontario Research
+Funding – Summary” data set published by the Ontario Government’s Ministry of
+Colleges and Universities. This data set provides an overview of all academic
+research projects that received Ontario Government funding between October 2004
+and March 2024, and is tracked by the government for a variety of purposes
+including: accounting and auditing, enabling public oversight, facilitating
+economic research and facilitating inter-government and inter-agency
+coordination of research efforts. The second is the “Ontario gross domestic
+product (GDP) by Goods-Producing Industries and Services Industries” data set
+published by the Ontario Government’s Ministry of Agriculture, Food and Rural
+Affairs. This data set provides Ontario’s GDP each year, broken down by industry
+for the years from 2007 to 2022, and is tracked by the government for a variety
+of purposes including: economic research and analysis, providing government
+officials and researchers a concise overview of Ontario’s economic health each
+year, and for informing the formulation of public policy based on current
+economic conditions.
+
+On the next page, we have included the relevant data that is used for this
+report.
+
+\pagebreak
+
+```{r}
+# -------------------------
+# TABLES
+# -------------------------
+
+# Funding Data
+kable(funding,
+      caption = "Ontario Research Funding – Summary",
+      col.names = c("Year", "Ontario Funding"))
+
+```
+
+```{r}
+# GDP data
+kable(gdp,
+      caption = paste("Ontario Gross Domestic Product (GDP) by Goods-Producing",
+                      "Industries and Services Industries"),
+      col.names = c("Year",
+                    "GDP (in millions of chained 2012 dollars)",
+                    "GDP Percent Change"))
+
+```
+
+
+## Analysis of Research Investment vs. GDP
+
+In this report, we will analyze whether there is a linear relation between the
+amount of funding provided to academic research projects by Ontario and the GDP
+percent change by using a linear regression model in R.
+
+```{r, message=FALSE, fig.dim=c(6, 4.25), fig.align="center"}
+# -------------------------
+# LINEAR REGRESSION MODEL
+# (INCLUDING OUTLIER)
+# -------------------------
+
+# Linear regression model
+l_model <- lm(gdp_change ~ Ontario.Commitment, data = d)
+summary(l_model)
+
+# Graph
+ggplot(d, aes(x = Ontario.Commitment, y = gdp_change)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(title = "Graph 1: Research Funding vs. GDP Percent Change in Ontario",
+       x = "Research Funding", y = "GDP Percent Change")
+
+```
+
+This model and its corresponding graph shows the relationship between the change
+in GDP and the research investment by Ontario. As shown above, the regression
+line (labelled `Ontario.Commitment`) has a slope of $-3.065 \times 10^{-8}$.
+This implies that the investing more money will result in a decrease in GDP,
+which is unexpected. The calculated $p$-value for the slope is 0.0125,
+which indicated that there is a significant relationship between the two
+variables. The $R^2$ value, which is $0.3919$, shows that this model only
+adequately describes $39\%$ of the data, which is not the greatest.
+
+However, notice the outlier at the bottom right corner of the graph, which
+corresponds to the year of the Great Recession, which was the worst economic
+downturn since the Great Depression.
+
+So, a second linear regression model was fitted to the data set with the
+outlier removed, and this is the result.
+
+```{r}
+# -------------------------
+# FILTER OUTLIER
+# -------------------------
+filt_int <- quantile(d$gdp_change, c(0.05, 1))
+dfilt <- d %>% filter(gdp_change >= filt_int[1] & gdp_change <= filt_int[2])
+
+```
+
+```{r, message=FALSE}
+# -------------------------
+# LINEAR REGRESSION MODEL
+# (EXCLUDING OUTLIER)
+# -------------------------
+
+# Linear regression model
+l_model_filt <- lm(gdp_change ~ Ontario.Commitment, data = dfilt)
+summary(l_model_filt)
+
+# Graph
+ggplot(dfilt, aes(x = Ontario.Commitment, y = gdp_change)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(title = paste("Graph 2: Research Funding vs. GDP Percent Change",
+                     "in Ontario\n(w/o Outliers)"),
+       x = "Research Funding", y = "GDP Percent Change")
+
+```
+
+Notice that the slope of the regression line becomes $-4.542 \times 10^{-9}$,
+which is slightly less negative than before. Moreover, the $p$-value of the
+slope is now $0.756$, which indicates there is very likely no relationship
+between the two variables whatsoever. The $R^2$ value of this model is
+$0.008327$, which shows that this model is not explaining much of the data
+at all. This is likely due to the low amount of data in the given data set.
+
+
+## Bootstrapping the Linear Regression Model
+
+As the data set is quite small, the data set is likely to be skewed. To more
+accurately predict the linear regression model, we have calculated a
+bootstrapped $95\%$ confidence interval for the slope of the model.
+
+This is the $95\%$ confidence interval for the slope of the model when the
+outlier is included:
+
+```{r}
+# -------------------------
+# BOOTSTRAPPING LM MODEL
+# -------------------------
+
+# Including outlier
+boot_function <- function() {
+  boot_d <- d %>% sample_n(nrow(d), replace = TRUE)
+  boot_m <- lm(gdp_change ~ Ontario.Commitment, data = boot_d)
+  s <- coef(boot_m)[2]
+  return(s)
+}
+boot_slope <- replicate(1000, boot_function())
+quantile(boot_slope, c(0.025, 0.975))
+
+```
+
+And this is the confidence interval for the slope when the outlier is not
+included:
+
+``` {r}
+# Excluding outlier
+boot_function_filt <- function() {
+  boot_d <- dfilt %>% sample_n(nrow(dfilt), replace = TRUE)
+  boot_m <- lm(gdp_change ~ Ontario.Commitment, data = boot_d)
+  s <- coef(boot_m)[2]
+  return(s)
+}
+boot_slope_filt <- replicate(1000, boot_function_filt())
+quantile(boot_slope_filt, c(0.025, 0.975))
+
+```
+
+In both cases, the value $0$ is included within the $95\%$ confidence interval
+for the slope. This means that we **cannot** reject the null hypothesis that
+there is no correlation between the amount of funding provided by Ontario and
+the percentage change in GDP for the following year.
+
+
+## Cross-Validating the Linear Regression Model
+
+As described above, our model might not be accurately describing the data.
+To verify this, we will cross-validate the linear regression model to find the
+mean squared error (MSE).
+
+It was observed that the range of outputs that was being calculated varied a
+lot, so we decided to bootstrap $95\%$ confidence intervals for the obtained MSE
+values.
+
+This is the $95\%$ confidence interval for the MSE when the outlier is included:
+
+```{r}
+# -------------------------
+# CROSS VALIDATION LM MODEL
+# -------------------------
+
+# We used bootstrapping for the MSE obtained from cross validation
+# because the results were very sporadic
+
+# Cross validation (w/ outlier)
+cv_func <- function() {
+  d_cv <- d %>% mutate(group_ind = sample(c("train", "test"),
+                                            size = nrow(d),
+                                            prob = c(0.6, 0.4),
+                                            replace = TRUE))
+
+  cv_m <- lm(gdp_change ~ Ontario.Commitment,
+                data = d_cv %>% filter(group_ind == "train"))
+
+  # MSE of Training Data Set
+  y_hat_train <- predict(cv_m)
+  mse <- mean((d_cv$gdp_change[d_cv$group_ind == "train"] - y_hat_train) ^ 2)
+  return(mse)
+}
+
+boot_mse <- replicate(1000, cv_func())
+quantile(boot_mse, c(0.025, 0.975))
+
+```
+
+And this is the $95\%$ confidence interval for the MSE when the outlier is not
+included:
+
+```{r}
+# Cross validation (w/o outlier)
+cv_func_filt <- function() {
+  d_cv <- d %>% mutate(group_ind = sample(c("train", "test"),
+                                            size = nrow(d),
+                                            prob = c(0.6, 0.4),
+                                            replace = TRUE))
+
+  cv_m <- lm(gdp_change ~ Ontario.Commitment,
+                data = d_cv %>% filter(group_ind == "train"))
+
+  # MSE of Test Data Set
+  y_hat_test <- predict(cv_m, newdata = d_cv %>% filter(group_ind == "test"))
+  mse <- mean((d_cv$gdp_change[d_cv$group_ind == "test"] - y_hat_test) ^ 2)
+  return(mse)
+}
+
+boot_mse_filt <- replicate(1000, cv_func_filt())
+quantile(boot_mse_filt, c(0.025, 0.975))
+
+```
+
+As expected, in both cases, the MSE confidence intervals obtained from models
+of both data sets are not that close to $0$, indicating that the models are
+not explaining the data set very well.
+
+It is also worth pointing out that the confidence interval for the data set
+without the outlier is shifted a bit in the positive direction, and the range is
+a lot bigger, which shows that the model performing suboptimally when the
+outlier is removed.
+
+
+## Summary
+
+There does not seem to be any correlation between research and development
+funding and GDP growth, and if there is, it is a weak negative correlation. This
+suggests that either research spending reduces economic growth, or more likely
+in the opinion of the authors, so many other factors play a role in economic
+growth that the specific impact provincial research funding has is not
+detectable, at least in a data set with not very many data sets, and even in a
+far larger data set, the correlation is likely still very weak. It should also
+be noted that the reliability of our findings is challenged by the fact that our
+data set contains the period of the financial crisis of 2008, which may skew
+findings. Further avenues for funding impact investigations may also find more
+success in generating actionable recommendations for public expenditure by
+investigating the long-term effects of research funding, for example by studying
+research expenditure as a percentage of GDP and GDP growth over a time span
+measured in decades, with the comparison being between different nations, as
+opposed to focusing on the year-to-year impact in one region as the authors of
+this study did.
+
+
+\pagebreak
+
+## Appendix: R Code Used in this Report
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+
+```
